@@ -1,0 +1,8 @@
+git+https://github.com/huggingface/peft
+git+https://github.com/huggingface/accelerate
+git+https://github.com/huggingface/transformers
+datasets
+evaluate
+tqdm
+huggingface_hub
+deepspeed
