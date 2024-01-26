@@ -507,7 +507,7 @@ def main():
                 negative_embs = model(**{k.replace("negative_", ""): v for k, v in batch.items() if "negative" in k})
                 p_scores = torch.diagonal(sentence_embs @ positive_embs.T, 0)
                 n_scores =  torch.diagonal(sentence_embs @ negative_embs.T, 0)
-                prediction_scores = torch.argmax(torch.stack([p_scores,n_scores],dim=1),dim=1).tolist()
+                prediction_scores = torch.argmax(torch.stack([p_scores,n_scores],dim=1),dim=1)
             prediction_scores, references = accelerator.gather_for_metrics((prediction_scores, batch["labels"]))
             metric.add_batch(
                 predictions=prediction_scores,
