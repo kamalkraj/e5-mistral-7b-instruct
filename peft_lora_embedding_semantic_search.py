@@ -288,8 +288,8 @@ def main():
 
     # dataset download and preprocessing
     if args.sanity_test:
-        train_dataset = load_dataset(args.dataset_name, split="train[:1024]")
-        val_dataset = load_dataset(args.dataset_name, split="valid[:1024]")
+        train_dataset = load_from_disk(args.dataset_name, split="train[:1024]")
+        val_dataset = load_from_disk(args.dataset_name, split="valid[:1024]")
 
         dataset = DatasetDict({"train": train_dataset, "valid": val_dataset})
     else:
