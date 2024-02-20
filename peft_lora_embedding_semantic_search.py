@@ -34,7 +34,7 @@ from huggingface_hub import Repository, create_repo
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import MistralPreTrainedModel, AutoTokenizer, SchedulerType, default_data_collator, get_scheduler, MistralModel
+from transformers import MistralPreTrainedModel, AutoTokenizer, SchedulerType, get_scheduler, MistralModel
 from transformers.utils import get_full_repo_name
 
 from peft import LoraConfig, TaskType, get_peft_model
@@ -297,45 +297,49 @@ def main():
 
     task = "Retrieve semantically similar text."
 
-    def preprocess_function(examples):
+    def collate_fn(batch):
+        sentences, positives, negatives = zip(*batch)
+        sentences = [item['sentence'] for item in batch]
+        negatives = [item['negative'] for item in batch]
+        positives = [item['positive'] for item in batch]
+        sentences = get_detailed_instruct(task, sentences)
 
-        queries = examples["sentence"]
-        queries = get_detailed_instruct(task, queries)
-        batch_dict = tokenizer(queries, max_length=args.max_length - 1, return_attention_mask=False, padding=False, truncation=True)
-        batch_dict['input_ids'] = [input_ids + [tokenizer.eos_token_id] for input_ids in batch_dict['input_ids']]
-        batch_dict = tokenizer.pad(batch_dict, padding=True, return_attention_mask=True, return_tensors='pt')
+        result = {}
+        # Here you would typically convert sentences, positives, and negatives
+        # to tensors. Since you haven't specified how you want to encode the text,
+        # I'll leave that part out. You could use tokenization and numericalization,
+        # for example, with a library like HuggingFace's `transformers`.
 
-        result = {f"sentence_{k}": v for k, v in batch_dict.items()}
+        sentence_batch_dict = tokenizer(sentences, max_length=args.max_length - 1, return_attention_mask=False, padding=False, truncation=True)
+        sentence_batch_dict['input_ids'] = [input_ids + [tokenizer.eos_token_id] for input_ids in sentence_batch_dict['input_ids']]
+        sentence_batch_dict = tokenizer.pad(sentence_batch_dict, padding=True, return_attention_mask=True, return_tensors='pt')
 
-        queries = examples["positive"]
-        batch_dict = tokenizer(queries, max_length=args.max_length - 1, return_attention_mask=False, padding=False, truncation=True)
-        batch_dict['input_ids'] = [input_ids + [tokenizer.eos_token_id] for input_ids in batch_dict['input_ids']]
-        batch_dict = tokenizer.pad(batch_dict, padding=True, return_attention_mask=True, return_tensors='pt')
 
-        for k, v in batch_dict.items():
+        positives_batch_dict = tokenizer(positives, max_length=args.max_length - 1, return_attention_mask=False, padding=False, truncation=True)
+        positives_batch_dict['input_ids'] = [input_ids + [tokenizer.eos_token_id] for input_ids in positives_batch_dict['input_ids']]
+        positives_batch_dict = tokenizer.pad(positives_batch_dict, padding=True, return_attention_mask=True, return_tensors='pt')
+
+        negatives_batch_dict = tokenizer(negatives, max_length=args.max_length - 1, return_attention_mask=False, padding=False, truncation=True)
+        negatives_batch_dict['input_ids'] = [input_ids + [tokenizer.eos_token_id] for input_ids in negatives_batch_dict['input_ids']]
+        negatives_batch_dict = tokenizer.pad(negatives_batch_dict, padding=True, return_attention_mask=True, return_tensors='pt')
+
+
+        for k, v in sentence_batch_dict.items():
+            result[f"sentence_{k}"] = v
+
+        for k, v in positives_batch_dict.items():
             result[f"positive_{k}"] = v
-        
-        queries = examples["negative"]
-        batch_dict = tokenizer(queries, max_length=args.max_length - 1, return_attention_mask=False, padding=False, truncation=True)
-        batch_dict['input_ids'] = [input_ids + [tokenizer.eos_token_id] for input_ids in batch_dict['input_ids']]
-        batch_dict = tokenizer.pad(batch_dict, padding=True, return_attention_mask=True, return_tensors='pt')
 
-        for k, v in batch_dict.items():
+        for k, v in negatives_batch_dict.items():
             result[f"negative_{k}"] = v
 
-        result["labels"] = [0] * len(examples["sentence"]) 
+        result["labels"] = [0] * len(sentences)
         return result
-
-    processed_datasets = dataset.map(
-        preprocess_function,
-        batched=True,
-        remove_columns=dataset["train"].column_names,
-        desc="Running tokenizer on dataset",
-    )
+    
 
     # Log a few random samples from the training set:
-    for index in random.sample(range(len(processed_datasets["train"])), 3):
-        logger.info(f"Sample {index} of the training set: {processed_datasets['train'][index]}.")
+    for index in random.sample(range(len(dataset["train"])), 3):
+        logger.info(f"Sample {index} of the training set: {dataset['train'][index]}.")
 
     # base model
     model = MistralForSequenceEmbedding.from_pretrained(args.model_name_or_path)
@@ -350,17 +354,17 @@ def main():
 
     # get dataloaders
     train_dataloader = DataLoader(
-        processed_datasets["train"],
+        dataset["train"],
         shuffle=True,
-        collate_fn=default_data_collator,
+        collate_fn=collate_fn,
         batch_size=args.per_device_train_batch_size,
         pin_memory=True,
     )
 
     eval_dataloader = DataLoader(
-        processed_datasets["valid"],
+        dataset["valid"],
         shuffle=False,
-        collate_fn=default_data_collator,
+        collate_fn=collate_fn,
         batch_size=args.per_device_eval_batch_size,
         pin_memory=True,
     )
@@ -416,7 +420,7 @@ def main():
         accelerator.register_load_state_pre_hook(load_model_hook)
 
     logger.info("***** Running training *****")
-    logger.info(f"  Num examples = {len(processed_datasets['train'])}")
+    logger.info(f"  Num examples = {len(dataset['train'])}")
     logger.info(f"  Num Epochs = {args.num_train_epochs}")
     logger.info(f"  Instantaneous batch size per device = {args.per_device_train_batch_size}")
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
